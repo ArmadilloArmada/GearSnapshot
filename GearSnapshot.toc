@@ -1,0 +1,9 @@
+## Interface: 120005
+## Title: GearSnapshot
+## Notes: Track your gear and ilvl progression over time across all alts.
+## Author: Armada Studios
+## Version: 1.0.0
+## SavedVariables: GearSnapshotDB
+## Category: Character Advancement
+
+Core.lua
