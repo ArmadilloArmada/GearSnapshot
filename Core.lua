@@ -69,6 +69,13 @@ local function RowStep()
     return ROW_HEIGHT + ROW_GAP
 end
 
+local function SafeNumber(value)
+    local ok, number = pcall(function()
+        return (value or 0) + 0
+    end)
+    return ok and number or 0
+end
+
 local function GetAverageIlvl()
     local total, count = 0, 0
     for _, slot in ipairs(SLOTS) do
@@ -111,7 +118,7 @@ local function CaptureStats()
             end)
             stats[stat.id] = {
                 name = stat.name,
-                value = ok and value or 0,
+                value = SafeNumber(ok and value or 0),
             }
         else
             local ratingIndex = (stat.rating and _G[stat.rating]) or stat.ratingIndex
@@ -121,7 +128,7 @@ local function CaptureStats()
             end
             stats[stat.id] = {
                 name = stat.name,
-                value = rating,
+                value = SafeNumber(rating),
             }
         end
     end
@@ -194,8 +201,8 @@ end
 local function BuildStatGainSummary(firstSnap, latestSnap)
     local gains = {}
     for _, stat in ipairs(STATS) do
-        local oldValue = firstSnap.stats and firstSnap.stats[stat.id] and firstSnap.stats[stat.id].value or 0
-        local newValue = latestSnap.stats and latestSnap.stats[stat.id] and latestSnap.stats[stat.id].value or 0
+        local oldValue = SafeNumber(firstSnap.stats and firstSnap.stats[stat.id] and firstSnap.stats[stat.id].value or 0)
+        local newValue = SafeNumber(latestSnap.stats and latestSnap.stats[stat.id] and latestSnap.stats[stat.id].value or 0)
         local diff = newValue - oldValue
         if diff > 0 then
             gains[#gains + 1] = "+" .. diff .. " " .. string.lower(stat.name)
@@ -439,8 +446,8 @@ local function RenderCompare()
 
     -- Stat diffs
     for _, stat in ipairs(STATS) do
-        local valA = snapA.stats and snapA.stats[stat.id] and snapA.stats[stat.id].value or 0
-        local valB = snapB.stats and snapB.stats[stat.id] and snapB.stats[stat.id].value or 0
+        local valA = SafeNumber(snapA.stats and snapA.stats[stat.id] and snapA.stats[stat.id].value or 0)
+        local valB = SafeNumber(snapB.stats and snapB.stats[stat.id] and snapB.stats[stat.id].value or 0)
         local statDiff = valB - valA
         local statDiffText = statDiff > 0 and ("|cff44ff44+" .. statDiff .. "|r") or statDiff < 0 and ("|cffff4444" .. statDiff .. "|r") or "|cffaaaaaa0|r"
         local row = EnsureRow(rowIndex)
