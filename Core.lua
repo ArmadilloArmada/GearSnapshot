@@ -638,6 +638,9 @@ CreateUI = function()
 
     frame.close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     frame.close:SetPoint("TOPRIGHT", -8, -8)
+    frame.close:SetScript("OnClick", function()
+        frame:Hide()
+    end)
 
     -- Tabs
     ui.tabs = {}
