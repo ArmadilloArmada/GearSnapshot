@@ -23,7 +23,7 @@ local SLOTS = {
 }
 
 local STATS = {
-    { id = 7,  name = "Stamina" },
+    { id = 7,  name = "Stamina", unitStat = 3 },
     { id = 36, name = "Haste" },
     { id = 32, name = "Crit" },
     { id = 49, name = "Mastery" },
@@ -97,14 +97,13 @@ end
 local function CaptureStats()
     local stats = {}
     for _, stat in ipairs(STATS) do
-        local base, posBuff, negBuff = UnitStat("player", stat.id)
-        if base then
+        if stat.unitStat then
+            local base, posBuff, negBuff = UnitStat("player", stat.unitStat)
             stats[stat.id] = {
                 name = stat.name,
-                value = base + (posBuff or 0) + (negBuff or 0),
+                value = (base or 0) + (posBuff or 0) + (negBuff or 0),
             }
         else
-            -- For secondary stats use GetCombatRating
             local rating = GetCombatRating and GetCombatRating(stat.id) or 0
             stats[stat.id] = {
                 name = stat.name,
