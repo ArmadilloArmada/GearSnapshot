@@ -2,6 +2,8 @@ local ADDON_NAME = "GearSnapshot"
 
 local db
 local ui = {}
+local ROW_HEIGHT = 56
+local ROW_GAP = 6
 
 local SLOTS = {
     { id = 1,  name = "Head" },
@@ -32,6 +34,7 @@ local STATS = {
 
 local Refresh
 local CreateUI
+local SetRowAccent
 
 local function Now()
     return GetServerTime()
@@ -60,6 +63,10 @@ end
 local function DiffText(value)
     if value > 0 then return "+" .. value end
     return tostring(value)
+end
+
+local function RowStep()
+    return ROW_HEIGHT + ROW_GAP
 end
 
 local function GetAverageIlvl()
@@ -228,36 +235,61 @@ local function EnsureRow(index)
     ui.rows = ui.rows or {}
     local row = ui.rows[index]
     if not row then
-        row = CreateFrame("Button", nil, ui.content)
-        row:SetHeight(44)
+        row = CreateFrame("Button", nil, ui.content, "BackdropTemplate")
+        row:SetHeight(ROW_HEIGHT)
+        row:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        row:SetBackdropColor(0.03, 0.04, 0.05, 0.86)
+        row:SetBackdropBorderColor(0.18, 0.23, 0.28, 0.95)
+        row.accent = row:CreateTexture(nil, "ARTWORK")
+        row.accent:SetPoint("TOPLEFT", 4, -5)
+        row.accent:SetPoint("BOTTOMLEFT", 4, 5)
+        row.accent:SetWidth(3)
+        row.accent:SetColorTexture(0.53, 0.8, 1, 0.95)
         row.left = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        row.left:SetPoint("LEFT", 8, 6)
-        row.left:SetPoint("RIGHT", -160, 6)
+        row.left:SetPoint("TOPLEFT", 14, -9)
+        row.left:SetPoint("RIGHT", -165, 0)
         row.left:SetJustifyH("LEFT")
         row.right = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.right:SetPoint("RIGHT", -8, 6)
+        row.right:SetPoint("TOPRIGHT", -12, -9)
         row.right:SetJustifyH("RIGHT")
         row.sub = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.sub:SetPoint("LEFT", 8, -10)
-        row.sub:SetPoint("RIGHT", -8, -10)
+        row.sub:SetPoint("BOTTOMLEFT", 14, 9)
+        row.sub:SetPoint("RIGHT", -12, 0)
         row.sub:SetJustifyH("LEFT")
         row.bg = row:CreateTexture(nil, "BACKGROUND")
         row.bg:SetAllPoints()
-        row.bg:SetColorTexture(1, 1, 1, index % 2 == 0 and 0.03 or 0)
+        row.bg:SetColorTexture(0, 0, 0, 0)
         ui.rows[index] = row
     end
     row:ClearAllPoints()
-    row:SetPoint("TOPLEFT", 0, -((index - 1) * 44))
-    row:SetPoint("RIGHT", 0, 0)
+    row:SetHeight(ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", 4, -((index - 1) * RowStep()))
+    row:SetPoint("RIGHT", -4, 0)
+    row:SetBackdropColor(0.03, 0.04, 0.05, 0.86)
+    row:SetBackdropBorderColor(0.18, 0.23, 0.28, 0.95)
     row:SetScript("OnClick", nil)
     row:SetScript("OnEnter", nil)
     row:SetScript("OnLeave", nil)
     if row.bar then row.bar:Hide() end
     if row.barBg then row.barBg:Hide() end
     row.right:SetTextColor(1, 1, 1)
+    row.left:SetTextColor(1, 0.82, 0.1)
+    row.sub:SetTextColor(0.62, 0.68, 0.74)
+    SetRowAccent(row, 0.53, 0.8, 1)
     row:EnableMouse(true)
-    row:SetScript("OnEnter", function(self) self.bg:SetColorTexture(1, 1, 1, 0.1) end)
-    row:SetScript("OnLeave", function(self) self.bg:SetColorTexture(1, 1, 1, index % 2 == 0 and 0.03 or 0) end)
+    row:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.07, 0.09, 0.11, 0.92)
+        self:SetBackdropBorderColor(0.53, 0.8, 1, 0.8)
+    end)
+    row:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0.03, 0.04, 0.05, 0.86)
+        self:SetBackdropBorderColor(0.18, 0.23, 0.28, 0.95)
+    end)
     row:Show()
     return row
 end
@@ -268,6 +300,18 @@ local function IlvlColor(ilvl)
     if ilvl >= 500 then return 0.1, 0.4, 0.9 end
     if ilvl >= 450 then return 0.1, 0.8, 0.1 end
     return 1, 1, 1
+end
+
+local function SnapshotKindLabel(kind)
+    if kind == "login" then return "Login" end
+    if kind == "logout" then return "Logout" end
+    return "Snapshot"
+end
+
+SetRowAccent = function(row, r, g, b)
+    if row.accent then
+        row.accent:SetColorTexture(r, g, b, 0.95)
+    end
 end
 
 local function SortedCharKeys()
@@ -299,10 +343,11 @@ local function RenderSnapshots()
     for index, snap in ipairs(char.snapshots) do
         local row = EnsureRow(index)
         local r, g, b = IlvlColor(snap.ilvl)
-        row.left:SetText(snap.label)
-        row.right:SetText(snap.ilvl .. " ilvl")
+        SetRowAccent(row, r, g, b)
+        row.left:SetText(snap.label or FormatDate(snap.timestamp))
+        row.right:SetText((snap.ilvl or 0) .. " ilvl")
         row.right:SetTextColor(r, g, b)
-        row.sub:SetText(snap.spec .. "  |  Level " .. snap.level .. "  |  " .. snap.zone)
+        row.sub:SetText(SnapshotKindLabel(snap.kind) .. "  |  " .. FormatDate(snap.timestamp) .. "  |  " .. (snap.spec or "Unknown") .. "  |  " .. (snap.zone or "Unknown"))
         row:SetScript("OnClick", function()
             db.compareA = { key = key, index = index }
             Message("Snapshot A set to: " .. snap.label .. " — click another to compare.")
@@ -331,9 +376,14 @@ local function RenderCharacters()
         local snapCount = char.snapshots and #char.snapshots or 0
         local latest = char.snapshots and char.snapshots[1]
         local row = EnsureRow(index)
-        local r, g, b = latest and IlvlColor(latest.ilvl) or 1, 1, 1
+        local r, g, b = 1, 1, 1
+        if latest then
+            r, g, b = IlvlColor(latest.ilvl)
+        end
 
         row.left:SetText((char.name or key) .. " — " .. (char.realm or ""))
+        SetRowAccent(row, r, g, b)
+        row.left:SetText((char.name or key) .. " - " .. (char.realm or ""))
         row.right:SetText(latest and (latest.ilvl .. " ilvl") or "No data")
         row.right:SetTextColor(r, g, b)
         row.sub:SetText(snapCount .. " snapshot" .. (snapCount == 1 and "" or "s") .. (latest and ("  |  Last: " .. FormatDate(latest.timestamp)) or ""))
@@ -428,6 +478,7 @@ local function RenderProgress()
     if firstLogin and latest then
         local dailyRow = EnsureRow(rowIndex)
         local ilvlDiff = latest.ilvl - firstLogin.ilvl
+        SetRowAccent(dailyRow, 0.2, 0.9, 0.45)
         dailyRow.left:SetText("Today")
         dailyRow.right:SetText(DiffText(ilvlDiff) .. " ilvl")
         dailyRow.sub:SetText("Since first login: " .. firstLogin.label .. BuildStatGainSummary(firstLogin, latest))
@@ -435,12 +486,13 @@ local function RenderProgress()
     end
 
     local range = math.max((maxIlvl or 0) - (minIlvl or 0), 1)
-    local graphWidth = math.max((ui.content:GetWidth() or 520) - 190, 180)
+    local graphWidth = math.max((ui.content:GetWidth() or 560) - 210, 220)
 
     for index = oldestIndex, newestIndex, -1 do
         local snap = char.snapshots[index]
         local row = EnsureRow(rowIndex)
         local r, g, b = IlvlColor(snap.ilvl or 0)
+        SetRowAccent(row, r, g, b)
         local percent = ((snap.ilvl or 0) - (minIlvl or 0)) / range
         local width = math.max(18, math.floor(graphWidth * percent))
         if maxIlvl == minIlvl then
@@ -449,18 +501,18 @@ local function RenderProgress()
 
         if not row.barBg then
             row.barBg = row:CreateTexture(nil, "ARTWORK")
-            row.barBg:SetHeight(10)
+            row.barBg:SetHeight(12)
             row.bar = row:CreateTexture(nil, "OVERLAY")
-            row.bar:SetHeight(10)
+            row.bar:SetHeight(12)
         end
 
         row.left:SetText((snap.ilvl or 0) .. " ilvl")
-        row.right:SetText(snap.kind == "login" and "Login" or snap.kind == "logout" and "Logout" or "Snapshot")
+        row.right:SetText(SnapshotKindLabel(snap.kind))
         row.right:SetTextColor(r, g, b)
         row.sub:SetText(FormatDate(snap.timestamp) .. "  |  " .. (snap.label or ""))
 
         row.barBg:ClearAllPoints()
-        row.barBg:SetPoint("LEFT", 88, 4)
+        row.barBg:SetPoint("LEFT", 96, -2)
         row.barBg:SetWidth(graphWidth)
         row.barBg:SetColorTexture(1, 1, 1, 0.08)
         row.barBg:Show()
@@ -485,7 +537,15 @@ end
 local function UpdateTabs()
     if not ui.tabs then return end
     for tab, button in pairs(ui.tabs) do
-        button:SetButtonState(db.activeTab == tab and "PUSHED" or "NORMAL", db.activeTab == tab)
+        local active = db.activeTab == tab
+        button:SetButtonState(active and "PUSHED" or "NORMAL", active)
+        if button:GetFontString() then
+            if active then
+                button:GetFontString():SetTextColor(0.53, 0.8, 1)
+            else
+                button:GetFontString():SetTextColor(0.86, 0.82, 0.68)
+            end
+        end
     end
 end
 
@@ -505,7 +565,7 @@ Refresh = function()
         rowIndex = RenderSnapshots()
     end
 
-    ui.content:SetHeight(math.max((rowIndex - 1) * 44, ui.frame.scroll:GetHeight()))
+    ui.content:SetHeight(math.max((rowIndex - 1) * RowStep(), ui.frame.scroll:GetHeight()))
 
     -- Update summary
     local key = db.selectedChar or CharacterKey()
@@ -516,22 +576,27 @@ Refresh = function()
     else
         ui.frame.summary:SetText("No snapshot taken yet.")
     end
+    if latest then
+        ui.frame.summary:SetText((char.name or key) .. "  |  " .. latest.ilvl .. " ilvl  |  " .. (latest.spec or "Unknown") .. "  |  " .. SnapshotKindLabel(latest.kind) .. " " .. FormatDate(latest.timestamp))
+    end
 end
 
 CreateUI = function()
     local frame = CreateFrame("Frame", "GearSnapshotFrame", UIParent, "BackdropTemplate")
-    frame:SetSize(580, 500)
+    frame:SetSize(660, 560)
     frame:SetPoint(db.position.point, UIParent, db.position.point, db.position.x, db.position.y)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetClampedToScreen(true)
     frame:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 10, right = 10, top = 10, bottom = 10 },
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
+    frame:SetBackdropColor(0.015, 0.018, 0.022, 0.96)
+    frame:SetBackdropBorderColor(0.2, 0.35, 0.45, 1)
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
@@ -541,9 +606,25 @@ CreateUI = function()
         db.position.y = y
     end)
 
+    frame.header = frame:CreateTexture(nil, "BACKGROUND")
+    frame.header:SetPoint("TOPLEFT", 5, -5)
+    frame.header:SetPoint("TOPRIGHT", -5, -5)
+    frame.header:SetHeight(76)
+    frame.header:SetColorTexture(0.02, 0.08, 0.11, 0.82)
+
+    frame.headerLine = frame:CreateTexture(nil, "ARTWORK")
+    frame.headerLine:SetPoint("TOPLEFT", 16, -76)
+    frame.headerLine:SetPoint("TOPRIGHT", -16, -76)
+    frame.headerLine:SetHeight(1)
+    frame.headerLine:SetColorTexture(0.53, 0.8, 1, 0.55)
+
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     frame.title:SetPoint("TOPLEFT", 18, -16)
     frame.title:SetText("|cff88ccffGear|rSnapshot")
+
+    frame.subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    frame.subtitle:SetPoint("TOPLEFT", 18, -38)
+    frame.subtitle:SetText("Automatic login/logout progression tracker")
 
     frame.close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     frame.close:SetPoint("TOPRIGHT", -8, -8)
@@ -563,7 +644,7 @@ CreateUI = function()
         if prev then
             btn:SetPoint("LEFT", prev, "RIGHT", 5, 0)
         else
-            btn:SetPoint("TOPLEFT", 18, -52)
+            btn:SetPoint("TOPLEFT", 18, -58)
         end
         btn:SetText(tab[2])
         btn:SetScript("OnClick", function() SetTab(tab[1]) end)
@@ -572,16 +653,16 @@ CreateUI = function()
     end
 
     frame.summary = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.summary:SetPoint("TOPLEFT", 18, -82)
-    frame.summary:SetPoint("RIGHT", -18, -82)
+    frame.summary:SetPoint("TOPLEFT", 18, -94)
+    frame.summary:SetPoint("RIGHT", -18, -94)
     frame.summary:SetJustifyH("LEFT")
 
     frame.scroll = CreateFrame("ScrollFrame", "GearSnapshotScrollFrame", frame, "UIPanelScrollFrameTemplate")
-    frame.scroll:SetPoint("TOPLEFT", 14, -104)
-    frame.scroll:SetPoint("BOTTOMRIGHT", -32, 52)
+    frame.scroll:SetPoint("TOPLEFT", 14, -120)
+    frame.scroll:SetPoint("BOTTOMRIGHT", -32, 56)
 
     ui.content = CreateFrame("Frame", nil, frame.scroll)
-    ui.content:SetSize(520, 300)
+    ui.content:SetSize(600, 360)
     frame.scroll:SetScrollChild(ui.content)
     frame.scroll:SetScript("OnSizeChanged", function(_, w, h)
         ui.content:SetWidth(w)
@@ -591,7 +672,7 @@ CreateUI = function()
     -- Snap button
     frame.snapBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     frame.snapBtn:SetSize(130, 26)
-    frame.snapBtn:SetPoint("BOTTOMLEFT", 18, 16)
+    frame.snapBtn:SetPoint("BOTTOMLEFT", 18, 17)
     frame.snapBtn:SetText("Take Snapshot")
     frame.snapBtn:SetScript("OnClick", function()
         TakeSnapshot("")
