@@ -24,10 +24,10 @@ local SLOTS = {
 
 local STATS = {
     { id = 7,  name = "Stamina", unitStat = 3 },
-    { id = 36, name = "Haste" },
-    { id = 32, name = "Crit" },
-    { id = 49, name = "Mastery" },
-    { id = 40, name = "Versatility" },
+    { id = 36, name = "Haste", rating = "CR_HASTE_MELEE", ratingIndex = 18 },
+    { id = 32, name = "Crit", rating = "CR_CRIT_MELEE", ratingIndex = 9 },
+    { id = 49, name = "Mastery", rating = "CR_MASTERY", ratingIndex = 26 },
+    { id = 40, name = "Versatility", rating = "CR_VERSATILITY_DAMAGE_DONE", ratingIndex = 29 },
 }
 
 local Refresh
@@ -104,7 +104,11 @@ local function CaptureStats()
                 value = (base or 0) + (posBuff or 0) + (negBuff or 0),
             }
         else
-            local rating = GetCombatRating and GetCombatRating(stat.id) or 0
+            local ratingIndex = (stat.rating and _G[stat.rating]) or stat.ratingIndex
+            local rating = 0
+            if GetCombatRating and ratingIndex and ratingIndex >= 1 and ratingIndex <= 32 then
+                rating = GetCombatRating(ratingIndex) or 0
+            end
             stats[stat.id] = {
                 name = stat.name,
                 value = rating,
