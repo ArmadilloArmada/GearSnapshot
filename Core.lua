@@ -53,6 +53,15 @@ local function FormatDate(timestamp)
     return date("%m/%d/%y %H:%M", timestamp or Now())
 end
 
+local function FormatDay(timestamp)
+    return date("%Y-%m-%d", timestamp or Now())
+end
+
+local function DiffText(value)
+    if value > 0 then return "+" .. value end
+    return tostring(value)
+end
+
 local function GetAverageIlvl()
     local total, count = 0, 0
     for _, slot in ipairs(SLOTS) do
@@ -106,17 +115,30 @@ local function CaptureStats()
     return stats
 end
 
-local function TakeSnapshot(label)
+local function TakeSnapshot(label, kind, silent)
     local key = CharacterKey()
     db.characters[key] = db.characters[key] or { snapshots = {} }
 
     local _, classFile = UnitClass("player")
     local specIndex = GetSpecialization and GetSpecialization()
-    local _, specName = specIndex and GetSpecializationInfo and GetSpecializationInfo(specIndex) or nil, "Unknown"
+    local specName = "Unknown"
+    if specIndex and GetSpecializationInfo then
+        local _
+        _, specName = GetSpecializationInfo(specIndex)
+    end
+
+    local timestamp = Now()
+    local cleanLabel = Trim(label)
+    if cleanLabel == "" and kind == "login" then
+        cleanLabel = "Login " .. FormatDate(timestamp)
+    elseif cleanLabel == "" and kind == "logout" then
+        cleanLabel = "Logout " .. FormatDate(timestamp)
+    end
 
     local snapshot = {
-        timestamp = Now(),
-        label = Trim(label) ~= "" and Trim(label) or FormatDate(Now()),
+        timestamp = timestamp,
+        label = cleanLabel ~= "" and cleanLabel or FormatDate(timestamp),
+        kind = kind or "manual",
         ilvl = GetAverageIlvl(),
         gear = CaptureGear(),
         stats = CaptureStats(),
@@ -128,8 +150,8 @@ local function TakeSnapshot(label)
 
     table.insert(db.characters[key].snapshots, 1, snapshot)
 
-    -- Keep max 20 snapshots per character
-    while #db.characters[key].snapshots > 20 do
+    -- Auto login/logout tracking creates more history than manual snapshots.
+    while #db.characters[key].snapshots > 60 do
         table.remove(db.characters[key].snapshots)
     end
 
@@ -137,9 +159,49 @@ local function TakeSnapshot(label)
     db.characters[key].realm = GetRealmName() or "Unknown"
     db.characters[key].class = classFile
 
-    Message("Snapshot saved — " .. snapshot.ilvl .. " ilvl")
+    if not silent then
+        Message("Snapshot saved - " .. snapshot.ilvl .. " ilvl")
+    end
     Refresh()
     return snapshot
+end
+
+local function FindTodayFirstLoginSnapshot(char)
+    if not char or not char.snapshots then return nil end
+    local today = FormatDay()
+    for index = #char.snapshots, 1, -1 do
+        local snap = char.snapshots[index]
+        if snap and snap.kind == "login" and FormatDay(snap.timestamp) == today then
+            return snap
+        end
+    end
+    return nil
+end
+
+local function BuildStatGainSummary(firstSnap, latestSnap)
+    local gains = {}
+    for _, stat in ipairs(STATS) do
+        local oldValue = firstSnap.stats and firstSnap.stats[stat.id] and firstSnap.stats[stat.id].value or 0
+        local newValue = latestSnap.stats and latestSnap.stats[stat.id] and latestSnap.stats[stat.id].value or 0
+        local diff = newValue - oldValue
+        if diff > 0 then
+            gains[#gains + 1] = "+" .. diff .. " " .. string.lower(stat.name)
+        end
+        if #gains == 2 then break end
+    end
+    if #gains == 0 then return "" end
+    return " and " .. table.concat(gains, ", ")
+end
+
+local function PrintDailyProgress()
+    local key = CharacterKey()
+    local char = db.characters[key]
+    local latest = char and char.snapshots and char.snapshots[1]
+    local firstLogin = FindTodayFirstLoginSnapshot(char)
+    if not latest or not firstLogin then return end
+
+    local ilvlDiff = latest.ilvl - firstLogin.ilvl
+    Message("Today you gained " .. DiffText(ilvlDiff) .. " ilvl" .. BuildStatGainSummary(firstLogin, latest) .. ".")
 end
 
 local function EnsureDB()
@@ -187,6 +249,9 @@ local function EnsureRow(index)
     row:SetScript("OnClick", nil)
     row:SetScript("OnEnter", nil)
     row:SetScript("OnLeave", nil)
+    if row.bar then row.bar:Hide() end
+    if row.barBg then row.barBg:Hide() end
+    row.right:SetTextColor(1, 1, 1)
     row:EnableMouse(true)
     row:SetScript("OnEnter", function(self) self.bg:SetColorTexture(1, 1, 1, 0.1) end)
     row:SetScript("OnLeave", function(self) self.bg:SetColorTexture(1, 1, 1, index % 2 == 0 and 0.03 or 0) end)
@@ -333,6 +398,82 @@ local function RenderCompare()
     return rowIndex
 end
 
+local function RenderProgress()
+    local key = db.selectedChar or CharacterKey()
+    local char = db.characters[key]
+
+    if not char or not char.snapshots or #char.snapshots == 0 then
+        local row = EnsureRow(1)
+        row.left:SetText("No progression yet.")
+        row.right:SetText("")
+        row.sub:SetText("Login, logout, or take a snapshot to start the timeline.")
+        return 2
+    end
+
+    local newestIndex = 1
+    local oldestIndex = math.min(#char.snapshots, 16)
+    local minIlvl, maxIlvl
+    for index = newestIndex, oldestIndex do
+        local ilvl = char.snapshots[index].ilvl or 0
+        minIlvl = minIlvl and math.min(minIlvl, ilvl) or ilvl
+        maxIlvl = maxIlvl and math.max(maxIlvl, ilvl) or ilvl
+    end
+
+    local rowIndex = 1
+    local firstLogin = FindTodayFirstLoginSnapshot(char)
+    local latest = char.snapshots[1]
+    if firstLogin and latest then
+        local dailyRow = EnsureRow(rowIndex)
+        local ilvlDiff = latest.ilvl - firstLogin.ilvl
+        dailyRow.left:SetText("Today")
+        dailyRow.right:SetText(DiffText(ilvlDiff) .. " ilvl")
+        dailyRow.sub:SetText("Since first login: " .. firstLogin.label .. BuildStatGainSummary(firstLogin, latest))
+        rowIndex = rowIndex + 1
+    end
+
+    local range = math.max((maxIlvl or 0) - (minIlvl or 0), 1)
+    local graphWidth = math.max((ui.content:GetWidth() or 520) - 190, 180)
+
+    for index = oldestIndex, newestIndex, -1 do
+        local snap = char.snapshots[index]
+        local row = EnsureRow(rowIndex)
+        local r, g, b = IlvlColor(snap.ilvl or 0)
+        local percent = ((snap.ilvl or 0) - (minIlvl or 0)) / range
+        local width = math.max(18, math.floor(graphWidth * percent))
+        if maxIlvl == minIlvl then
+            width = math.floor(graphWidth * 0.75)
+        end
+
+        if not row.barBg then
+            row.barBg = row:CreateTexture(nil, "ARTWORK")
+            row.barBg:SetHeight(10)
+            row.bar = row:CreateTexture(nil, "OVERLAY")
+            row.bar:SetHeight(10)
+        end
+
+        row.left:SetText((snap.ilvl or 0) .. " ilvl")
+        row.right:SetText(snap.kind == "login" and "Login" or snap.kind == "logout" and "Logout" or "Snapshot")
+        row.right:SetTextColor(r, g, b)
+        row.sub:SetText(FormatDate(snap.timestamp) .. "  |  " .. (snap.label or ""))
+
+        row.barBg:ClearAllPoints()
+        row.barBg:SetPoint("LEFT", 88, 4)
+        row.barBg:SetWidth(graphWidth)
+        row.barBg:SetColorTexture(1, 1, 1, 0.08)
+        row.barBg:Show()
+
+        row.bar:ClearAllPoints()
+        row.bar:SetPoint("LEFT", row.barBg, "LEFT", 0, 0)
+        row.bar:SetWidth(width)
+        row.bar:SetColorTexture(r, g, b, 0.9)
+        row.bar:Show()
+
+        rowIndex = rowIndex + 1
+    end
+
+    return rowIndex
+end
+
 local function SetTab(tab)
     db.activeTab = tab
     Refresh()
@@ -355,6 +496,8 @@ Refresh = function()
         rowIndex = RenderCharacters()
     elseif db.activeTab == "compare" then
         rowIndex = RenderCompare()
+    elseif db.activeTab == "progress" then
+        rowIndex = RenderProgress()
     else
         rowIndex = RenderSnapshots()
     end
@@ -406,6 +549,7 @@ CreateUI = function()
     ui.tabs = {}
     local tabDefs = {
         { "snapshots",   "Snapshots" },
+        { "progress",    "Progress" },
         { "characters",  "Characters" },
         { "compare",     "Compare" },
     }
@@ -517,22 +661,24 @@ end
 
 EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
     EnsureDB()
-    -- Auto snapshot on login if no snapshot today
     C_Timer.After(2, function()
-        local key = CharacterKey()
-        local char = db.characters[key]
-        local latest = char and char.snapshots and char.snapshots[1]
-        local today = date("%Y-%m-%d", Now())
-        local lastDate = latest and date("%Y-%m-%d", latest.timestamp) or ""
-        if lastDate ~= today then
-            TakeSnapshot("Login " .. date("%m/%d", Now()))
-        end
+        TakeSnapshot("", "login", true)
+        PrintDailyProgress()
     end)
 end)
 
 EventRegistry:RegisterCallback("PLAYER_ENTERING_WORLD", function()
     if not db then EnsureDB() end
 end, {})
+
+local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("PLAYER_LOGOUT")
+eventFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGOUT" then
+        if not db then EnsureDB() end
+        TakeSnapshot("", "logout", true)
+    end
+end)
 
 -- Armada Addons hub registration
 C_Timer.After(0, function()
