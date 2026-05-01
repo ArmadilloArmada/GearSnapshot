@@ -106,9 +106,12 @@ local function CaptureStats()
     for _, stat in ipairs(STATS) do
         if stat.unitStat then
             local base, posBuff, negBuff = UnitStat("player", stat.unitStat)
+            local ok, value = pcall(function()
+                return (base or 0) + (posBuff or 0) + (negBuff or 0)
+            end)
             stats[stat.id] = {
                 name = stat.name,
-                value = (base or 0) + (posBuff or 0) + (negBuff or 0),
+                value = ok and value or 0,
             }
         else
             local ratingIndex = (stat.rating and _G[stat.rating]) or stat.ratingIndex
